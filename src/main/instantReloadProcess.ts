@@ -3,7 +3,9 @@ import fs from 'fs';
 import getPort from 'get-port';
 import bs from 'browser-sync';
 import type { BrowserSyncInstance } from 'browser-sync';
+import debounce from 'lodash/debounce';
 import { INSTANT_RELOAD_EVENTS } from '../constants';
+import { isWordPressInstallingOrUpdating } from './wordPressActivity';
 
 interface FileChangeResponse {
 	file: string;
@@ -15,6 +17,9 @@ interface FileChangeResponse {
 
 let instantReloadInstance: BrowserSyncInstance;
 
+/**
+ * Files in themes and plugins that are injected into the page (or reload it) when they change
+ */
 const watchFileExtensions = [
 	'css',
 	'jpg',
@@ -22,6 +27,20 @@ const watchFileExtensions = [
 	'gif',
 	'png',
 ];
+
+/**
+ * Theme template files that need a full page reload when they change. Only themes are watched for these, since
+ * plugin code is usually only changed by WordPress installing or updating plugins.
+ */
+const themeTemplateFileExtensions = [
+	'php',
+];
+
+/**
+ * Wait for this long without further template changes before reloading, so that saving several files at once
+ * (or a git checkout) causes a single reload.
+ */
+const FULL_RELOAD_DEBOUNCE_MS = 250;
 
 
 /**
@@ -175,22 +194,44 @@ const handleWatchFiles = async (payload) => {
 	 * On Windows, a Site's webRoot path contains backslashes. Since backslashes are not valid in glob patterns
 	 * they have to be stripped out and replaced with forward slashes
 	 */
-	const webRootPieces = payload.webRoot.split(path.sep);
+	const wpContentPieces = [...payload.webRoot.split(path.sep), 'wp-content'];
 
-	const fileWatchPatterns = watchFileExtensions.map(
-		(extension) => [...webRootPieces, 'wp-content', '?(themes|plugins)', '**', `*.${extension}`].join('/'),
-	);
+	const fileWatchPatterns = [
+		...watchFileExtensions.map(
+			(extension) => [...wpContentPieces, '?(themes|plugins)', '**', `*.${extension}`].join('/'),
+		),
+		...themeTemplateFileExtensions.map(
+			(extension) => [...wpContentPieces, 'themes', '**', `*.${extension}`].join('/'),
+		),
+	];
 
 	const chokidarOpts = {
-		ignored: /(\/vendor\/|\/node_modules\/)/g,
+		// Match either path separator, since Windows paths use backslashes
+		ignored: /[\\/](vendor|node_modules)[\\/]/,
 		ignoreInitial: true,
 	};
+
+	const reloadPage = debounce(() => instantReloadInstance?.reload(), FULL_RELOAD_DEBOUNCE_MS);
 
 	const fsWatcher = instantReloadInstance.watch(
 		fileWatchPatterns,
 		chokidarOpts,
 		(event, file) => {
-			instantReloadInstance.reload(file);
+			const isTemplateFile = themeTemplateFileExtensions.includes(path.extname(file).slice(1).toLowerCase());
+
+			if (isTemplateFile) {
+				/**
+				 * Skip files written by WordPress while it installs or updates core, plugins or themes, so that
+				 * the browser doesn't reload in the middle of it
+				 */
+				if (isWordPressInstallingOrUpdating(payload.webRoot, file)) {
+					return;
+				}
+
+				reloadPage();
+			} else {
+				instantReloadInstance.reload(file);
+			}
 
 			const response: FileChangeResponse = {
 				file,
