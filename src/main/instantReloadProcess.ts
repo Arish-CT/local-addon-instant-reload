@@ -44,6 +44,12 @@ const themeFullReloadFileExtensions = [
  */
 const FULL_RELOAD_DEBOUNCE_MS = 250;
 
+/**
+ * Port the Instant Reload proxy listens on. When it's taken (for example by another running site), BrowserSync
+ * uses the next free port above it.
+ */
+const START_PORT = 9999;
+
 
 /**
  * Appends http or http to the beginning of a url if a protocol does not already exist on the url
@@ -154,6 +160,7 @@ const handleCreate = async (payload) => {
 					},
 				},
 			],
+			port: START_PORT,
 			...testInitOptions,
 			ghostMode: false,
 			ui: false,
