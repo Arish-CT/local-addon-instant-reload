@@ -29,16 +29,18 @@ const watchFileExtensions = [
 ];
 
 /**
- * Theme template files that need a full page reload when they change. Only themes are watched for these, since
- * plugin code is usually only changed by WordPress installing or updating plugins.
+ * Theme files that need a full page reload when they change, since they can't be swapped into an open page.
+ * Only themes are watched for these, since plugin code is usually only changed by WordPress installing or
+ * updating plugins.
  */
-const themeTemplateFileExtensions = [
+const themeFullReloadFileExtensions = [
 	'php',
+	'js',
 ];
 
 /**
- * Wait for this long without further template changes before reloading, so that saving several files at once
- * (or a git checkout) causes a single reload.
+ * Wait for this long without further changes to these files before reloading, so that saving several files at
+ * once (or a git checkout) causes a single reload.
  */
 const FULL_RELOAD_DEBOUNCE_MS = 250;
 
@@ -200,7 +202,7 @@ const handleWatchFiles = async (payload) => {
 		...watchFileExtensions.map(
 			(extension) => [...wpContentPieces, '?(themes|plugins)', '**', `*.${extension}`].join('/'),
 		),
-		...themeTemplateFileExtensions.map(
+		...themeFullReloadFileExtensions.map(
 			(extension) => [...wpContentPieces, 'themes', '**', `*.${extension}`].join('/'),
 		),
 	];
@@ -217,9 +219,9 @@ const handleWatchFiles = async (payload) => {
 		fileWatchPatterns,
 		chokidarOpts,
 		(event, file) => {
-			const isTemplateFile = themeTemplateFileExtensions.includes(path.extname(file).slice(1).toLowerCase());
+			const needsFullReload = themeFullReloadFileExtensions.includes(path.extname(file).slice(1).toLowerCase());
 
-			if (isTemplateFile) {
+			if (needsFullReload) {
 				/**
 				 * Skip files written by WordPress while it installs or updates core, plugins or themes, so that
 				 * the browser doesn't reload in the middle of it
